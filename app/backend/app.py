@@ -32,9 +32,10 @@ KB_FIELDS_SOURCEPAGE = os.environ.get("KB_FIELDS_SOURCEPAGE") or "sourcepage"
 azure_credential = DefaultAzureCredential()
 
 # Used by the OpenAI SDK
-openai.api_type = "azure"
-openai.api_base = f"https://{AZURE_OPENAI_SERVICE}.openai.azure.com"
-openai.api_version = "2022-12-01"
+# Comment out: use OPENAI_API_KEY, not Azure credential
+# openai.api_type = "azure"
+# openai.api_base = f"https://{AZURE_OPENAI_SERVICE}.openai.azure.com"
+# openai.api_version = "2022-12-01"
 
 # Comment these two lines out if using keys, set your API key in the OPENAI_API_KEY environment variable instead
 # openai.api_type = "azure_ad"
