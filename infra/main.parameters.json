@@ -34,6 +34,15 @@
     },
     "storageResourceGroupName": {
       "value": "${AZURE_STORAGE_RESOURCE_GROUP}"
+    },
+    "keyVaultOpenAIName": {
+      "value": "openai-api-key"
+    },
+    "keyVaultOpenAISecretName": {
+      "value": "azure-search-openai-demo"
+    },
+    "keyVaultOpenAIResourceGroupName": {
+      "value": "secrets"
     }
   }
 }

@@ -38,6 +38,16 @@ var abbrs = loadJsonContent('abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
 
+// Key Bault for OPENAI_API_KEY
+param keyVaultOpenAIName string
+param keyVaultOpenAISecretName string
+param keyVaultOpenAIResourceGroupName string
+
+resource keyVaultOpenAI 'Microsoft.KeyVault/vaults@2021-10-01' existing = {
+  name: keyVaultOpenAIName
+  scope: az.resourceGroup(keyVaultOpenAIResourceGroupName)
+}
+
 // Organize resources in a resource group
 resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
   name: !empty(resourceGroupName) ? resourceGroupName : '${abbrs.resourcesResourceGroups}${environmentName}'
@@ -86,6 +96,7 @@ module backend 'core/host/appservice.bicep' = {
     runtimeVersion: '3.10'
     scmDoBuildDuringDeployment: true
     managedIdentity: true
+    openAIKey: keyVaultOpenAI.getSecret(keyVaultOpenAISecretName)
     appSettings: {
       AZURE_STORAGE_ACCOUNT: storage.outputs.name
       AZURE_STORAGE_CONTAINER: storageContainerName
