@@ -15,7 +15,8 @@ class RetrieveThenReadApproach(Approach):
 "Answer the following question using only the data provided in the sources below. " + \
 "For tabular information return it as an html table. Do not return markdown format. "  + \
 "Each source has a name followed by colon and the actual information, always include the source name for each fact you use in the response. " + \
-"If you cannot answer using the sources below, say you don't know. "
+"If you cannot answer using the sources below, say you don't know. " + \
+"You must answer in Japanese. "
 
     user_oneshot = \
 """Question: 'What is the deductible for the employee plan for a visit to Overlake in Bellevue?'
@@ -28,7 +29,7 @@ info4.pdf: In-network institutions include Overlake, Swedish and others in the r
 
 Answer:
 """
-    answer_oneshot = "In-network deductibles are $500 for employee and $1000 for family [info1.txt] and Overlake is in-network for the employee plan [info2.pdf][info4.pdf]."
+    answer_oneshot = "ネットワーク内の控除額は、従業員は500ドル、家族は1000ドルです[info1.txt]。また、Overlakeは従業員プランのネットワーク内にあります[info2.pdf][info4.pdf]。"
 
     template = \
 """Question: '{q}'?
