@@ -5,6 +5,7 @@ import html
 import io
 import re
 import time
+from pptx import Presentation
 from pypdf import PdfReader, PdfWriter
 from azure.identity import AzureDeveloperCliCredential
 from azure.core.credentials import AzureKeyCredential
@@ -54,8 +55,9 @@ if not args.localpdfparser:
     formrecognizer_creds = default_creds if args.formrecognizerkey == None else AzureKeyCredential(args.formrecognizerkey)
 
 def blob_name_from_file_page(filename, page = 0):
-    if os.path.splitext(filename)[1].lower() == ".pdf":
-        return os.path.splitext(os.path.basename(filename))[0] + f"-{page}" + ".pdf"
+    file_ext = os.path.splitext(filename)[1].lower()
+    if file_ext == ".pdf" or file_ext == ".pptx":
+        return os.path.splitext(os.path.basename(filename))[0] + f"-{page}" + file_ext
     else:
         return os.path.basename(filename)
 
@@ -78,6 +80,14 @@ def upload_blobs(filename):
             writer.write(f)
             f.seek(0)
             blob_container.upload_blob(blob_name, f, overwrite=True)
+    elif os.path.splitext(filename)[1].lower() == ".pptx":
+        # for pptx files, extract text from each slide and upload each slide as a separate blob
+        ppt = Presentation(filename)
+        for i, slide in enumerate(ppt.slides):
+            blob_name = blob_name_from_file_page(filename, i)
+            if args.verbose: print(f"\tUploading blob for slide {i} -> {blob_name}")
+            slide_text = ' '.join([shape.text for shape in slide.shapes if shape.has_text_frame])
+            blob_container.upload_blob(blob_name, slide_text, overwrite=True)
     else:
         blob_name = blob_name_from_file_page(filename)
         with open(filename,"rb") as data:
@@ -113,52 +123,64 @@ def table_to_html(table):
     return table_html
 
 def get_document_text(filename):
-    offset = 0
-    page_map = []
-    if args.localpdfparser:
-        reader = PdfReader(filename)
-        pages = reader.pages
-        for page_num, p in enumerate(pages):
-            page_text = p.extract_text()
-            page_map.append((page_num, offset, page_text))
-            offset += len(page_text)
+    if os.path.splitext(filename)[1].lower() == ".pdf":
+        offset = 0
+        page_map = []
+        if args.localpdfparser:
+            reader = PdfReader(filename)
+            pages = reader.pages
+            for page_num, p in enumerate(pages):
+                page_text = p.extract_text()
+                page_map.append((page_num, offset, page_text))
+                offset += len(page_text)
+        else:
+            if args.verbose: print(f"Extracting text from '{filename}' using Azure Form Recognizer")
+            form_recognizer_client = DocumentAnalysisClient(endpoint=f"https://{args.formrecognizerservice}.cognitiveservices.azure.com/", credential=formrecognizer_creds, headers={"x-ms-useragent": "azure-search-chat-demo/1.0.0"})
+            with open(filename, "rb") as f:
+                poller = form_recognizer_client.begin_analyze_document("prebuilt-layout", document = f)
+            form_recognizer_results = poller.result()
+
+            for page_num, page in enumerate(form_recognizer_results.pages):
+                tables_on_page = [table for table in form_recognizer_results.tables if table.bounding_regions[0].page_number == page_num + 1]
+
+                # mark all positions of the table spans in the page
+                page_offset = page.spans[0].offset
+                page_length = page.spans[0].length
+                table_chars = [-1]*page_length
+                for table_id, table in enumerate(tables_on_page):
+                    for span in table.spans:
+                        # replace all table spans with "table_id" in table_chars array
+                        for i in range(span.length):
+                            idx = span.offset - page_offset + i
+                            if idx >=0 and idx < page_length:
+                                table_chars[idx] = table_id
+
+                # build page text by replacing charcters in table spans with table html
+                page_text = ""
+                added_tables = set()
+                for idx, table_id in enumerate(table_chars):
+                    if table_id == -1:
+                        page_text += form_recognizer_results.content[page_offset + idx]
+                    elif not table_id in added_tables:
+                        page_text += table_to_html(tables_on_page[table_id])
+                        added_tables.add(table_id)
+
+                page_text += " "
+                page_map.append((page_num, offset, page_text))
+                offset += len(page_text)
+
+        return page_map
+    elif os.path.splitext(filename)[1].lower() == ".pptx":
+        if args.verbose: print(f"Extracting text from '{filename}' using python-pptx")
+        ppt = Presentation(filename)
+        page_map = []
+        for i, slide in enumerate(ppt.slides):
+            slide_text = ' '.join([shape.text for shape in slide.shapes if shape.has_text_frame])
+            page_map.append((i, len(slide_text), slide_text))
+        return page_map
     else:
-        if args.verbose: print(f"Extracting text from '{filename}' using Azure Form Recognizer")
-        form_recognizer_client = DocumentAnalysisClient(endpoint=f"https://{args.formrecognizerservice}.cognitiveservices.azure.com/", credential=formrecognizer_creds, headers={"x-ms-useragent": "azure-search-chat-demo/1.0.0"})
-        with open(filename, "rb") as f:
-            poller = form_recognizer_client.begin_analyze_document("prebuilt-layout", document = f)
-        form_recognizer_results = poller.result()
-
-        for page_num, page in enumerate(form_recognizer_results.pages):
-            tables_on_page = [table for table in form_recognizer_results.tables if table.bounding_regions[0].page_number == page_num + 1]
-
-            # mark all positions of the table spans in the page
-            page_offset = page.spans[0].offset
-            page_length = page.spans[0].length
-            table_chars = [-1]*page_length
-            for table_id, table in enumerate(tables_on_page):
-                for span in table.spans:
-                    # replace all table spans with "table_id" in table_chars array
-                    for i in range(span.length):
-                        idx = span.offset - page_offset + i
-                        if idx >=0 and idx < page_length:
-                            table_chars[idx] = table_id
-
-            # build page text by replacing charcters in table spans with table html
-            page_text = ""
-            added_tables = set()
-            for idx, table_id in enumerate(table_chars):
-                if table_id == -1:
-                    page_text += form_recognizer_results.content[page_offset + idx]
-                elif not table_id in added_tables:
-                    page_text += table_to_html(tables_on_page[table_id])
-                    added_tables.add(table_id)
-
-            page_text += " "
-            page_map.append((page_num, offset, page_text))
-            offset += len(page_text)
-
-    return page_map
+        # for other files, return an empty page_map
+        return []
 
 def split_text(page_map):
     SENTENCE_ENDINGS = [".", "!", "?"]
